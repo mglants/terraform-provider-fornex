@@ -21,7 +21,7 @@ func TestListDomains(t *testing.T) {
 		domains := []Domain{
 			{Name: "example.com", Created: "2024-01-01", Updated: "2024-01-01", Tags: []string{"test"}},
 		}
-		json.NewEncoder(w).Encode(domains)
+		_ = json.NewEncoder(w).Encode(domains)
 	}))
 	defer server.Close()
 
@@ -48,14 +48,14 @@ func TestCreateDomain(t *testing.T) {
 		}
 
 		var req DomainRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Name != "new.com" || req.IP != "1.1.1.1" {
 			t.Errorf("Unexpected request body: %+v", req)
 		}
 
 		w.WriteHeader(http.StatusCreated)
 		domain := Domain{Name: "new.com"}
-		json.NewEncoder(w).Encode(domain)
+		_ = json.NewEncoder(w).Encode(domain)
 	}))
 	defer server.Close()
 
@@ -94,7 +94,7 @@ func TestDeleteDomain(t *testing.T) {
 func TestErrorHandling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid request"))
+		_, _ = w.Write([]byte("invalid request"))
 	}))
 	defer server.Close()
 

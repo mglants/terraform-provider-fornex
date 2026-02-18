@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4 # v4.3.0
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4.3.1
+      - uses: actions/setup-go@a5f9b05d2d216f63e13859e0d847461041025775 # v4.3.0
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -37,8 +37,8 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4 # v4.3.0
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4.3.1
+      - uses: actions/setup-go@a5f9b05d2d216f63e13859e0d847461041025775 # v4.3.0
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -66,8 +66,8 @@ jobs:
           - '1.13.*'
           - '1.14.*'
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4 # v4.3.0
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4.3.1
+      - uses: actions/setup-go@a5f9b05d2d216f63e13859e0d847461041025775 # v4.3.0
         with:
           go-version-file: 'go.mod'
           cache: true

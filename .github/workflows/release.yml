@@ -21,7 +21,7 @@ jobs:
         with:
           # Allow goreleaser to access older tag information.
           fetch-depth: 0
-      - uses: actions/setup-go@a5f9b05d2d216f63e13859e0d847461041025775 # v4.3.0
+      - uses: actions/setup-go@def8c394e3ad351a79bc93815e4a585520fe993b # v4.3.0
         with:
           go-version-file: 'go.mod'
           cache: true

@@ -17,5 +17,8 @@ Provides a Fornex domain resource. This can be used to create and delete domains
 
 ### Required
 
-- `ip` (String) Initial IP address for the domain.
 - `name` (String) The domain name to manage.
+
+### Optional
+
+- `ip` (String) Initial IP address for the domain. This attribute is only used during creation and is not tracked in the state afterwards.

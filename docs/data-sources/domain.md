@@ -3,12 +3,12 @@
 page_title: "fornex_domain Data Source - terraform-provider-fornex"
 subcategory: ""
 description: |-
-  
+  Get information about a specific Fornex domain.
 ---
 
 # fornex_domain (Data Source)
 
-
+Get information about a specific Fornex domain.
 
 
 
@@ -17,10 +17,10 @@ description: |-
 
 ### Required
 
-- `name` (String)
+- `name` (String) The domain name to look up.
 
 ### Read-Only
 
-- `created` (String)
-- `tags` (List of String)
-- `updated` (String)
+- `created` (String) The date and time the domain was created.
+- `tags` (List of String) List of tags associated with the domain.
+- `updated` (String) The date and time the domain was last updated.

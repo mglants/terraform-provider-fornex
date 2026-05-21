@@ -3,12 +3,12 @@
 page_title: "fornex_domains Data Source - terraform-provider-fornex"
 subcategory: ""
 description: |-
-  
+  Get information about all Fornex domains.
 ---
 
 # fornex_domains (Data Source)
 
-
+Get information about all Fornex domains.
 
 
 
@@ -17,14 +17,14 @@ description: |-
 
 ### Read-Only
 
-- `domains` (Attributes List) (see [below for nested schema](#nestedatt--domains))
+- `domains` (Attributes List) List of domains found. (see [below for nested schema](#nestedatt--domains))
 
 <a id="nestedatt--domains"></a>
 ### Nested Schema for `domains`
 
 Read-Only:
 
-- `created` (String)
-- `name` (String)
-- `tags` (List of String)
-- `updated` (String)
+- `created` (String) The date and time the domain was created.
+- `name` (String) The domain name.
+- `tags` (List of String) List of tags associated with the domain.
+- `updated` (String) The date and time the domain was last updated.

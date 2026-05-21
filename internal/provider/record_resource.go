@@ -62,8 +62,11 @@ func (r *RecordResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				},
 			},
 			"host": schema.StringAttribute{
-				Description: "The host part of the record (e.g., \"www\").",
+				Description: "The host part of the record (e.g., \"www\"). Use \"\" or \"@\" for apex records; \"@\" is canonicalized to \"\" before being sent to the Fornex API.",
 				Required:    true,
+				PlanModifiers: []planmodifier.String{
+					ApexHostNormalizer(),
+				},
 			},
 			"type": schema.StringAttribute{
 				Description: "The type of the record (A, AAAA, CAA, CNAME, MX, NS, SRV, TXT).",

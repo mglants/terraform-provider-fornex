@@ -18,7 +18,7 @@ Provides a Fornex DNS record resource. This can be used to create, modify, and d
 ### Required
 
 - `domain_name` (String) The domain name this record belongs to.
-- `host` (String) The host part of the record (e.g., "www"). Use "" or "@" for apex records; "@" is canonicalized to "" before being sent to the Fornex API.
+- `host` (String) The host part of the record (e.g., "www"). For apex records write "@"; it is rewritten to "" before being sent to the Fornex API, and any apex form the API returns ("", "@", "<domain>", "<domain>.") is canonicalized back to "@" in state. The empty string is rejected — write "@" instead.
 - `type` (String) The type of the record (A, AAAA, CAA, CNAME, MX, NS, SRV, TXT).
 - `value` (String) The value of the record.
 

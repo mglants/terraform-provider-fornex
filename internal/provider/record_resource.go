@@ -62,10 +62,10 @@ func (r *RecordResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				},
 			},
 			"host": schema.StringAttribute{
-				Description: "The host part of the record (e.g., \"www\"). Use \"\" or \"@\" for apex records; \"@\" is canonicalized to \"\" before being sent to the Fornex API.",
+				Description: "The host part of the record (e.g., \"www\"). For apex records write \"@\"; it is rewritten to \"\" before being sent to the Fornex API, and any apex form the API returns (\"\", \"@\", \"<domain>\", \"<domain>.\") is canonicalized back to \"@\" in state. The empty string is rejected — write \"@\" instead.",
 				Required:    true,
-				PlanModifiers: []planmodifier.String{
-					ApexHostNormalizer(),
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
 				},
 			},
 			"type": schema.StringAttribute{
@@ -108,6 +108,29 @@ func (r *RecordResource) Configure(ctx context.Context, req resource.ConfigureRe
 	r.client = c
 }
 
+// hostForAPI converts a user-facing host value to the form expected by the
+// Fornex API. The API stores apex records with an empty host, so "@" is
+// translated to "" before being sent.
+func hostForAPI(host string) string {
+	if host == "@" {
+		return ""
+	}
+	return host
+}
+
+// hostFromAPI canonicalizes a host value returned by the Fornex API to "@" for
+// apex records. The API can store apex hosts in several forms ("", "@",
+// "<domain>", "<domain>.") depending on how each record was originally
+// created; mapping all of them to "@" means writing host = "@" in config
+// round-trips cleanly. Non-apex hosts are returned verbatim.
+func hostFromAPI(apiHost, domainName string) string {
+	trimmed := strings.TrimSuffix(apiHost, ".")
+	if trimmed == "" || trimmed == "@" || trimmed == domainName {
+		return "@"
+	}
+	return apiHost
+}
+
 func (r *RecordResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data RecordResourceModel
 
@@ -118,7 +141,7 @@ func (r *RecordResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	entry := client.Entry{
-		Host:  data.Host.ValueString(),
+		Host:  hostForAPI(data.Host.ValueString()),
 		Type:  data.Type.ValueString(),
 		Value: data.Value.ValueString(),
 	}
@@ -170,7 +193,7 @@ func (r *RecordResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	data.Host = types.StringValue(entry.Host)
+	data.Host = types.StringValue(hostFromAPI(entry.Host, data.DomainName.ValueString()))
 	data.Type = types.StringValue(entry.Type)
 	data.Value = types.StringValue(entry.Value)
 	if entry.TTL != nil {
@@ -198,7 +221,7 @@ func (r *RecordResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	entry := client.Entry{
-		Host:  data.Host.ValueString(),
+		Host:  hostForAPI(data.Host.ValueString()),
 		Type:  data.Type.ValueString(),
 		Value: data.Value.ValueString(),
 	}

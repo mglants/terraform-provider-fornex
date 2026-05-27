@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -132,8 +133,18 @@ func (c *Client) DeleteDomain(name string) error {
 }
 
 func (c *Client) GetDomain(name string) (*Domain, error) {
-	domains, err := c.ListDomains()
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/dns/domain/?q=%s", c.BaseURL, url.QueryEscape(name)), nil)
 	if err != nil {
+		return nil, err
+	}
+
+	body, err := c.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var domains []Domain
+	if err := json.Unmarshal(body, &domains); err != nil {
 		return nil, err
 	}
 	for _, d := range domains {

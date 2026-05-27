@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -76,16 +77,22 @@ func (r *RecordResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				},
 			},
 			"ttl": schema.Int64Attribute{
-				Description: "Time to live for the record.",
+				Description: "Time to live for the record, in seconds. Fornex only accepts a fixed set of values: 120 (2m), 300 (5m), 600 (10m), 900 (15m), 1800 (30m), 3600 (1h), 7200 (2h), 18000 (5h), 43200 (12h), 86400 (24h). Omit the attribute to use the Fornex default (auto).",
 				Optional:    true,
+				Validators: []validator.Int64{
+					int64validator.OneOf(120, 300, 600, 900, 1800, 3600, 7200, 18000, 43200, 86400),
+				},
 			},
 			"value": schema.StringAttribute{
 				Description: "The value of the record.",
 				Required:    true,
 			},
 			"priority": schema.Int64Attribute{
-				Description: "Priority of the record (used for MX, SRV).",
+				Description: "Priority of the record (used for MX, SRV). Must be >= 1; Fornex's API silently coerces 0 to 1, which Terraform would then reject as an inconsistent apply result.",
 				Optional:    true,
+				Validators: []validator.Int64{
+					int64validator.AtLeast(1),
+				},
 			},
 		},
 	}

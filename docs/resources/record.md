@@ -24,8 +24,8 @@ Provides a Fornex DNS record resource. This can be used to create, modify, and d
 
 ### Optional
 
-- `priority` (Number) Priority of the record (used for MX, SRV).
-- `ttl` (Number) Time to live for the record.
+- `priority` (Number) Priority of the record (used for MX, SRV). Must be >= 1; Fornex's API silently coerces 0 to 1, which Terraform would then reject as an inconsistent apply result.
+- `ttl` (Number) Time to live for the record, in seconds. Fornex only accepts a fixed set of values: 120 (2m), 300 (5m), 600 (10m), 900 (15m), 1800 (30m), 3600 (1h), 7200 (2h), 18000 (5h), 43200 (12h), 86400 (24h). Omit the attribute to use the Fornex default (auto).
 
 ### Read-Only
 

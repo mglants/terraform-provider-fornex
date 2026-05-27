@@ -51,7 +51,7 @@ output "domain_names" {
 * `host` (String, Required) The host part of the record (e.g., "www").
 * `type` (String, Required) The type of the record (A, AAAA, CAA, CNAME, MX, NS, SRV, TXT).
 * `value` (String, Required) The value of the record.
-* `ttl` (Number, Optional) Time to live for the record.
+* `ttl` (Number, Optional) Time to live for the record, in seconds. Must be one of: `120`, `300`, `600`, `900`, `1800`, `3600`, `7200`, `18000`, `43200`, `86400`. Omit to use the Fornex default (auto).
 
 ### fornex_domain (Data Source)
 

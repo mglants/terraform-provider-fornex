@@ -46,7 +46,7 @@ func (p *FornexProvider) Schema(ctx context.Context, req provider.SchemaRequest,
 				Optional:    true,
 			},
 			"timeout": schema.StringAttribute{
-				Description: "Per-request HTTP timeout, as a Go duration string (e.g. `30s`, `2m`). Each retry attempt gets its own fresh timeout. Defaults to `1m`. Can also be set via `FORNEX_TIMEOUT` environment variable.",
+				Description: "Per-request HTTP timeout, as a Go duration string (e.g. `30s`, `2m`). Each retry attempt gets its own fresh timeout. Defaults to `3m`. Can also be set via `FORNEX_TIMEOUT` environment variable.",
 				Optional:    true,
 			},
 		},

@@ -3,8 +3,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -21,9 +23,10 @@ type Client struct {
 }
 
 // DefaultTimeout is the per-request HTTP timeout used when the caller does not
-// supply one. Each retry attempt gets its own fresh timeout, so the worst-case
-// wall time is roughly (RetryMax + 1) * Timeout plus backoff.
-const DefaultTimeout = time.Minute
+// supply one. The Fornex `GET /dns/domain/` endpoint has been observed taking
+// well over a minute for accounts with many domains, so the default leaves
+// headroom for that.
+const DefaultTimeout = 3 * time.Minute
 
 func NewClient(apiKey string, baseURL string, timeout time.Duration) *Client {
 	if baseURL == "" {
@@ -41,6 +44,7 @@ func NewClient(apiKey string, baseURL string, timeout time.Duration) *Client {
 	rc.RetryMax = 4
 	rc.RetryWaitMin = 1 * time.Second
 	rc.RetryWaitMax = 30 * time.Second
+	rc.CheckRetry = checkRetryNoTimeoutRetry
 	// Silence retryablehttp's stderr logger; the Terraform plugin host already
 	// surfaces request errors via diagnostics.
 	rc.Logger = nil
@@ -50,6 +54,17 @@ func NewClient(apiKey string, baseURL string, timeout time.Duration) *Client {
 		APIKey:     apiKey,
 		HTTPClient: rc,
 	}
+}
+
+// checkRetryNoTimeoutRetry behaves like retryablehttp.DefaultRetryPolicy except
+// it does not retry when the per-request HTTPClient.Timeout fires. Retrying a
+// genuinely-slow endpoint just multiplies wall time by RetryMax and hammers the
+// upstream; the caller is better off seeing the timeout and raising it.
+func checkRetryNoTimeoutRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	if err != nil && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return false, err
+	}
+	return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {

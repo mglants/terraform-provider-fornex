@@ -18,4 +18,4 @@ The Fornex provider is used to interact with the many services offered by Fornex
 
 - `api_key` (String, Sensitive) Your Fornex API key. Can also be set via `FORNEX_API_KEY` environment variable.
 - `base_url` (String) Fornex API base URL. Defaults to `https://fornex.com/api`. Can also be set via `FORNEX_BASE_URL` environment variable.
-- `timeout` (String) Per-request HTTP timeout, as a Go duration string (e.g. `30s`, `2m`). Each retry attempt gets its own fresh timeout. Defaults to `1m`. Can also be set via `FORNEX_TIMEOUT` environment variable.
+- `timeout` (String) Per-request HTTP timeout, as a Go duration string (e.g. `30s`, `2m`). Each retry attempt gets its own fresh timeout. Defaults to `3m`. Can also be set via `FORNEX_TIMEOUT` environment variable.

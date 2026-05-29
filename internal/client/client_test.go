@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestListDomains(t *testing.T) {
@@ -108,5 +110,49 @@ func TestErrorHandling(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "status: 400") {
 		t.Errorf("Expected error to contain status 400, got: %s", err)
+	}
+}
+
+func TestNoRetryOnPerRequestTimeout(t *testing.T) {
+	var count int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&count, 1)
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, 50*time.Millisecond)
+	_, err := client.ListDomains(context.Background())
+
+	if err == nil {
+		t.Fatal("Expected timeout error, got nil")
+	}
+
+	if got := atomic.LoadInt32(&count); got != 1 {
+		t.Errorf("Expected exactly 1 request (no retry on timeout), got: %d", got)
+	}
+}
+
+func TestRetryOnServerError(t *testing.T) {
+	var count int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&count, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, time.Second)
+	client.HTTPClient.RetryWaitMin = time.Millisecond
+	client.HTTPClient.RetryWaitMax = 5 * time.Millisecond
+
+	_, err := client.ListDomains(context.Background())
+
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if got := atomic.LoadInt32(&count); got != 5 {
+		t.Errorf("Expected 5 requests (1 + RetryMax=4 retries), got: %d", got)
 	}
 }

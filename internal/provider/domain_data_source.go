@@ -82,7 +82,7 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	domain, err := d.client.GetDomain(data.Name.ValueString())
+	domain, err := d.client.GetDomain(ctx, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to get domain, got error: %s", err))
 		return

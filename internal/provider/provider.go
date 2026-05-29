@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -22,6 +24,7 @@ type FornexProvider struct {
 type FornexProviderModel struct {
 	APIKey  types.String `tfsdk:"api_key"`
 	BaseURL types.String `tfsdk:"base_url"`
+	Timeout types.String `tfsdk:"timeout"`
 }
 
 func (p *FornexProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -42,6 +45,10 @@ func (p *FornexProvider) Schema(ctx context.Context, req provider.SchemaRequest,
 				Description: "Fornex API base URL. Defaults to `https://fornex.com/api`. Can also be set via `FORNEX_BASE_URL` environment variable.",
 				Optional:    true,
 			},
+			"timeout": schema.StringAttribute{
+				Description: "Per-request HTTP timeout, as a Go duration string (e.g. `30s`, `2m`). Each retry attempt gets its own fresh timeout. Defaults to `1m`. Can also be set via `FORNEX_TIMEOUT` environment variable.",
+				Optional:    true,
+			},
 		},
 	}
 }
@@ -57,6 +64,7 @@ func (p *FornexProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	apiKey := os.Getenv("FORNEX_API_KEY")
 	baseURL := os.Getenv("FORNEX_BASE_URL")
+	timeoutStr := os.Getenv("FORNEX_TIMEOUT")
 
 	if !data.APIKey.IsNull() {
 		apiKey = data.APIKey.ValueString()
@@ -64,6 +72,10 @@ func (p *FornexProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	if !data.BaseURL.IsNull() {
 		baseURL = data.BaseURL.ValueString()
+	}
+
+	if !data.Timeout.IsNull() {
+		timeoutStr = data.Timeout.ValueString()
 	}
 
 	if apiKey == "" {
@@ -74,11 +86,29 @@ func (p *FornexProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		)
 	}
 
+	var timeout time.Duration
+	if timeoutStr != "" {
+		parsed, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Invalid Timeout",
+				fmt.Sprintf("The timeout value %q is not a valid Go duration (e.g. %q, %q): %s", timeoutStr, "30s", "2m", err),
+			)
+		} else if parsed <= 0 {
+			resp.Diagnostics.AddError(
+				"Invalid Timeout",
+				fmt.Sprintf("The timeout value %q must be greater than zero.", timeoutStr),
+			)
+		} else {
+			timeout = parsed
+		}
+	}
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	c := client.NewClient(apiKey, baseURL)
+	c := client.NewClient(apiKey, baseURL, timeout)
 	resp.DataSourceData = c
 	resp.ResourceData = c
 }

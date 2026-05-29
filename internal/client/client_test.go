@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -25,8 +26,8 @@ func TestListDomains(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", server.URL)
-	domains, err := client.ListDomains()
+	client := NewClient("test-key", server.URL, 0)
+	domains, err := client.ListDomains(context.Background())
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %s", err)
@@ -59,8 +60,8 @@ func TestCreateDomain(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", server.URL)
-	domain, err := client.CreateDomain("new.com", "1.1.1.1")
+	client := NewClient("test-key", server.URL, 0)
+	domain, err := client.CreateDomain(context.Background(), "new.com", "1.1.1.1")
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %s", err)
@@ -83,8 +84,8 @@ func TestDeleteDomain(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", server.URL)
-	err := client.DeleteDomain("example.com")
+	client := NewClient("test-key", server.URL, 0)
+	err := client.DeleteDomain(context.Background(), "example.com")
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %s", err)
@@ -98,8 +99,8 @@ func TestErrorHandling(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", server.URL)
-	_, err := client.ListDomains()
+	client := NewClient("test-key", server.URL, 0)
+	_, err := client.ListDomains(context.Background())
 
 	if err == nil {
 		t.Fatal("Expected error, got nil")

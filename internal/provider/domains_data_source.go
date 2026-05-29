@@ -88,7 +88,7 @@ func (d *DomainsDataSource) Configure(ctx context.Context, req datasource.Config
 func (d *DomainsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var data DomainsDataSourceModel
 
-	domains, err := d.client.ListDomains()
+	domains, err := d.client.ListDomains(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list domains, got error: %s", err))
 		return

@@ -163,7 +163,7 @@ func (r *RecordResource) Create(ctx context.Context, req resource.CreateRequest,
 		entry.Priority = &priority
 	}
 
-	newEntry, err := r.client.CreateEntry(data.DomainName.ValueString(), entry)
+	newEntry, err := r.client.CreateEntry(ctx, data.DomainName.ValueString(), entry)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create record, got error: %s", err))
 		return
@@ -194,7 +194,7 @@ func (r *RecordResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	entry, err := r.client.GetEntry(data.DomainName.ValueString(), int(data.ID.ValueInt64()))
+	entry, err := r.client.GetEntry(ctx, data.DomainName.ValueString(), int(data.ID.ValueInt64()))
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read record, got error: %s", err))
 		return
@@ -243,7 +243,7 @@ func (r *RecordResource) Update(ctx context.Context, req resource.UpdateRequest,
 		entry.Priority = &priority
 	}
 
-	updatedEntry, err := r.client.UpdateEntry(data.DomainName.ValueString(), int(data.ID.ValueInt64()), entry)
+	updatedEntry, err := r.client.UpdateEntry(ctx, data.DomainName.ValueString(), int(data.ID.ValueInt64()), entry)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update record, got error: %s", err))
 		return
@@ -273,7 +273,7 @@ func (r *RecordResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	err := r.client.DeleteEntry(data.DomainName.ValueString(), int(data.ID.ValueInt64()))
+	err := r.client.DeleteEntry(ctx, data.DomainName.ValueString(), int(data.ID.ValueInt64()))
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete record, got error: %s", err))
 		return

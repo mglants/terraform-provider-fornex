@@ -1,14 +1,15 @@
 package client
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 const DefaultBaseURL = "https://fornex.com/api"
@@ -16,26 +17,47 @@ const DefaultBaseURL = "https://fornex.com/api"
 type Client struct {
 	BaseURL    string
 	APIKey     string
-	HTTPClient *http.Client
+	HTTPClient *retryablehttp.Client
 }
 
-func NewClient(apiKey string, baseURL string) *Client {
+// DefaultTimeout is the per-request HTTP timeout used when the caller does not
+// supply one. Each retry attempt gets its own fresh timeout, so the worst-case
+// wall time is roughly (RetryMax + 1) * Timeout plus backoff.
+const DefaultTimeout = time.Minute
+
+func NewClient(apiKey string, baseURL string, timeout time.Duration) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 	// Ensure no trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
+	rc := retryablehttp.NewClient()
+	rc.HTTPClient.Timeout = timeout
+	rc.RetryMax = 4
+	rc.RetryWaitMin = 1 * time.Second
+	rc.RetryWaitMax = 30 * time.Second
+	// Silence retryablehttp's stderr logger; the Terraform plugin host already
+	// surfaces request errors via diagnostics.
+	rc.Logger = nil
+
 	return &Client{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		HTTPClient: &http.Client{
-			Timeout: time.Minute,
-		},
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		HTTPClient: rc,
 	}
 }
 
-func (c *Client) doRequest(req *http.Request) ([]byte, error) {
+func (c *Client) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set("Authorization", fmt.Sprintf("Api-Key %s", c.APIKey))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -47,16 +69,16 @@ func (c *Client) doRequest(req *http.Request) ([]byte, error) {
 		_ = res.Body.Close()
 	}()
 
-	body, err := io.ReadAll(res.Body)
+	respBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("status: %d, body: %s", res.StatusCode, string(body))
+		return nil, fmt.Errorf("status: %d, body: %s", res.StatusCode, string(respBody))
 	}
 
-	return body, nil
+	return respBody, nil
 }
 
 // Domain types
@@ -84,13 +106,8 @@ type Entry struct {
 }
 
 // Domain methods
-func (c *Client) ListDomains() ([]Domain, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/dns/domain/", c.BaseURL), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+func (c *Client) ListDomains(ctx context.Context) ([]Domain, error) {
+	body, err := c.doRequest(ctx, "GET", "/dns/domain/", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -100,19 +117,13 @@ func (c *Client) ListDomains() ([]Domain, error) {
 	return domains, err
 }
 
-func (c *Client) CreateDomain(name, ip string) (*Domain, error) {
-	dr := DomainRequest{Name: name, IP: ip}
-	data, err := json.Marshal(dr)
+func (c *Client) CreateDomain(ctx context.Context, name, ip string) (*Domain, error) {
+	data, err := json.Marshal(DomainRequest{Name: name, IP: ip})
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/dns/domain/", c.BaseURL), bytes.NewBuffer(data))
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+	body, err := c.doRequest(ctx, "POST", "/dns/domain/", data)
 	if err != nil {
 		return nil, err
 	}
@@ -122,23 +133,13 @@ func (c *Client) CreateDomain(name, ip string) (*Domain, error) {
 	return &domain, err
 }
 
-func (c *Client) DeleteDomain(name string) error {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/dns/domain/%s/", c.BaseURL, name), nil)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.doRequest(req)
+func (c *Client) DeleteDomain(ctx context.Context, name string) error {
+	_, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/dns/domain/%s/", name), nil)
 	return err
 }
 
-func (c *Client) GetDomain(name string) (*Domain, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/dns/domain/?q=%s", c.BaseURL, url.QueryEscape(name)), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+func (c *Client) GetDomain(ctx context.Context, name string) (*Domain, error) {
+	body, err := c.doRequest(ctx, "GET", fmt.Sprintf("/dns/domain/?q=%s", url.QueryEscape(name)), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +157,8 @@ func (c *Client) GetDomain(name string) (*Domain, error) {
 }
 
 // Entry methods
-func (c *Client) ListEntries(domainName string) ([]Entry, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/dns/domain/%s/entry_set/", c.BaseURL, domainName), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+func (c *Client) ListEntries(ctx context.Context, domainName string) ([]Entry, error) {
+	body, err := c.doRequest(ctx, "GET", fmt.Sprintf("/dns/domain/%s/entry_set/", domainName), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -172,18 +168,13 @@ func (c *Client) ListEntries(domainName string) ([]Entry, error) {
 	return entries, err
 }
 
-func (c *Client) CreateEntry(domainName string, entry Entry) (*Entry, error) {
+func (c *Client) CreateEntry(ctx context.Context, domainName string, entry Entry) (*Entry, error) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/dns/domain/%s/entry_set/", c.BaseURL, domainName), bytes.NewBuffer(data))
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+	body, err := c.doRequest(ctx, "POST", fmt.Sprintf("/dns/domain/%s/entry_set/", domainName), data)
 	if err != nil {
 		return nil, err
 	}
@@ -193,18 +184,13 @@ func (c *Client) CreateEntry(domainName string, entry Entry) (*Entry, error) {
 	return &newEntry, err
 }
 
-func (c *Client) UpdateEntry(domainName string, entryID int, entry Entry) (*Entry, error) {
+func (c *Client) UpdateEntry(ctx context.Context, domainName string, entryID int, entry Entry) (*Entry, error) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/dns/domain/%s/entry_set/%d/", c.BaseURL, domainName, entryID), bytes.NewBuffer(data))
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := c.doRequest(req)
+	body, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/dns/domain/%s/entry_set/%d/", domainName, entryID), data)
 	if err != nil {
 		return nil, err
 	}
@@ -214,18 +200,13 @@ func (c *Client) UpdateEntry(domainName string, entryID int, entry Entry) (*Entr
 	return &updatedEntry, err
 }
 
-func (c *Client) DeleteEntry(domainName string, entryID int) error {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/dns/domain/%s/entry_set/%d/", c.BaseURL, domainName, entryID), nil)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.doRequest(req)
+func (c *Client) DeleteEntry(ctx context.Context, domainName string, entryID int) error {
+	_, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/dns/domain/%s/entry_set/%d/", domainName, entryID), nil)
 	return err
 }
 
-func (c *Client) GetEntry(domainName string, entryID int) (*Entry, error) {
-	entries, err := c.ListEntries(domainName)
+func (c *Client) GetEntry(ctx context.Context, domainName string, entryID int) (*Entry, error) {
+	entries, err := c.ListEntries(ctx, domainName)
 	if err != nil {
 		return nil, err
 	}

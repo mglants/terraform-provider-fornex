@@ -27,9 +27,15 @@ type Client struct {
 	// GetDomain / GetEntry many times for the same names, so the client
 	// memoizes results for its lifetime. Writes invalidate the matching
 	// entry to keep state consistent within one run.
+	//
+	// `domainsByName` is a value-only cache: a hit is trustworthy, but a
+	// miss is NOT proof-of-absence. The Fornex API's `?q=` filter is fuzzy
+	// (e.g. `q=infradim.com` and `q=itdept.team` return overlapping but
+	// distinct ~12–25-domain sets), so there's no single walk that
+	// enumerates the user's account exhaustively. Every miss must walk
+	// `?q=<name>` and merge its results in.
 	domainsMu       sync.Mutex
 	domainsByName   map[string]Domain
-	domainsLoaded   bool
 	entriesMu       sync.Mutex
 	entriesByDomain map[string][]Entry
 }
@@ -200,39 +206,47 @@ func (c *Client) DeleteDomain(ctx context.Context, name string) error {
 }
 
 func (c *Client) GetDomain(ctx context.Context, name string) (*Domain, error) {
+	// Fast path: cache hit. Don't hold the lock during the HTTP walk so
+	// parallel GetDomain calls for different names can run concurrently.
 	c.domainsMu.Lock()
-	defer c.domainsMu.Unlock()
+	if d, ok := c.domainsByName[name]; ok {
+		c.domainsMu.Unlock()
+		return &d, nil
+	}
+	c.domainsMu.Unlock()
 
-	if !c.domainsLoaded {
-		cache := make(map[string]Domain)
-		next := fmt.Sprintf("/dns/domain/?q=%s", url.QueryEscape(name))
-		for next != "" {
-			page, err := c.listDomainsPage(ctx, next)
-			if err != nil {
-				return nil, err
-			}
-			for _, d := range page.Results {
-				cache[d.Name] = d
-			}
-			next = page.Next
+	next := fmt.Sprintf("/dns/domain/?q=%s", url.QueryEscape(name))
+	var collected []Domain
+	for next != "" {
+		page, err := c.listDomainsPage(ctx, next)
+		if err != nil {
+			return nil, err
 		}
-		c.domainsByName = cache
-		c.domainsLoaded = true
+		collected = append(collected, page.Results...)
+		next = page.Next
 	}
 
-	if d, ok := c.domainsByName[name]; ok {
-		return &d, nil
+	c.domainsMu.Lock()
+	if c.domainsByName == nil {
+		c.domainsByName = make(map[string]Domain, len(collected))
+	}
+	for _, d := range collected {
+		c.domainsByName[d.Name] = d
+	}
+	found, ok := c.domainsByName[name]
+	c.domainsMu.Unlock()
+
+	if ok {
+		return &found, nil
 	}
 	return nil, fmt.Errorf("domain %s not found", name)
 }
 
-// invalidateDomain drops the whole domain cache. The user's domain list is
-// small (~25) and only Create/Delete touch it, so just resetting is cheaper
-// than maintaining incremental updates against a possibly-stale view.
+// invalidateDomain drops the whole domain cache. Called after Create/Delete so
+// the next GetDomain re-fetches.
 func (c *Client) invalidateDomain() {
 	c.domainsMu.Lock()
 	c.domainsByName = nil
-	c.domainsLoaded = false
 	c.domainsMu.Unlock()
 }
 

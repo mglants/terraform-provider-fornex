@@ -84,32 +84,49 @@ func TestGetDomainCached(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
 		w.WriteHeader(http.StatusOK)
+		// Each q-walk returns the same two domains for test simplicity.
+		// Production Fornex returns *different* sets depending on q.
 		_ = json.NewEncoder(w).Encode(paginatedDomains{
 			Results: []Domain{
 				{Name: "cached.com"},
-				{Name: "other.com"},
+				{Name: "sibling.com"},
 			},
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient("test-key", server.URL, 0)
+
 	for i := 0; i < 3; i++ {
 		domain, err := client.GetDomain(context.Background(), "cached.com")
 		if err != nil {
-			t.Fatalf("GetDomain #%d: %s", i, err)
+			t.Fatalf("GetDomain(cached.com) #%d: %s", i, err)
 		}
 		if domain.Name != "cached.com" {
 			t.Errorf("Expected cached.com, got: %s", domain.Name)
 		}
 	}
-	// A miss should not re-hit the API either — the cache is authoritative
-	// for the lifetime of the client.
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("Repeated lookups of same name should share 1 walk, got: %d", got)
+	}
+
+	// `sibling.com` was returned as part of the cached.com walk, so it's
+	// already cached and should NOT trigger a fresh HTTP call.
+	if _, err := client.GetDomain(context.Background(), "sibling.com"); err != nil {
+		t.Fatalf("GetDomain(sibling.com): %s", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("Cached sibling lookup should not trigger a new walk, got: %d", got)
+	}
+
+	// A genuinely missing name forces a fresh walk (since the cache cannot
+	// rule out absence — Fornex's `q=` is fuzzy and a previous walk's
+	// non-results do NOT prove non-existence).
 	if _, err := client.GetDomain(context.Background(), "missing.com"); err == nil {
 		t.Fatal("expected not-found error for missing.com")
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Errorf("Expected exactly 1 HTTP call across 4 GetDomain calls, got: %d", got)
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Errorf("Cache miss for missing.com should force a new walk (total=2), got: %d", got)
 	}
 }
 

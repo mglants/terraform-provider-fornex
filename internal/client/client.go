@@ -145,9 +145,7 @@ type paginatedDomains struct {
 // (e.g. "/dns/domain/?q=foo") or an absolute URL taken verbatim from the
 // previous page's `next` field.
 func (c *Client) listDomainsPage(ctx context.Context, path string) (*paginatedDomains, error) {
-	if strings.HasPrefix(path, c.BaseURL) {
-		path = strings.TrimPrefix(path, c.BaseURL)
-	}
+	path = strings.TrimPrefix(path, c.BaseURL)
 	body, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err

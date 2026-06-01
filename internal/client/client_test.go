@@ -21,10 +21,12 @@ func TestListDomains(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		domains := []Domain{
-			{Name: "example.com", Created: "2024-01-01", Updated: "2024-01-01", Tags: []string{"test"}},
+		page := paginatedDomains{
+			Results: []Domain{
+				{Name: "example.com", Created: "2024-01-01", Updated: "2024-01-01", Tags: []string{"test"}},
+			},
 		}
-		_ = json.NewEncoder(w).Encode(domains)
+		_ = json.NewEncoder(w).Encode(page)
 	}))
 	defer server.Close()
 
@@ -41,6 +43,118 @@ func TestListDomains(t *testing.T) {
 
 	if domains[0].Name != "example.com" {
 		t.Errorf("Expected domain name 'example.com', got: %s", domains[0].Name)
+	}
+}
+
+func TestGetDomainPaginated(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		switch r.URL.Query().Get("page") {
+		case "", "1":
+			// Page 1: target domain is not here, but `next` points at page 2.
+			next := "http://" + r.Host + r.URL.Path + "?page=2&q=" + r.URL.Query().Get("q")
+			_ = json.NewEncoder(w).Encode(paginatedDomains{
+				Next: next,
+				Results: []Domain{
+					{Name: "other.com"},
+				},
+			})
+		case "2":
+			_ = json.NewEncoder(w).Encode(paginatedDomains{
+				Results: []Domain{
+					{Name: "wanted.com", Tags: []string{"test"}},
+				},
+			})
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, 0)
+	domain, err := client.GetDomain(context.Background(), "wanted.com")
+	if err != nil {
+		t.Fatalf("Expected no error, got: %s", err)
+	}
+	if domain.Name != "wanted.com" {
+		t.Errorf("Expected wanted.com, got: %s", domain.Name)
+	}
+}
+
+func TestGetDomainCached(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(paginatedDomains{
+			Results: []Domain{
+				{Name: "cached.com"},
+				{Name: "other.com"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, 0)
+	for i := 0; i < 3; i++ {
+		domain, err := client.GetDomain(context.Background(), "cached.com")
+		if err != nil {
+			t.Fatalf("GetDomain #%d: %s", i, err)
+		}
+		if domain.Name != "cached.com" {
+			t.Errorf("Expected cached.com, got: %s", domain.Name)
+		}
+	}
+	// A miss should not re-hit the API either — the cache is authoritative
+	// for the lifetime of the client.
+	if _, err := client.GetDomain(context.Background(), "missing.com"); err == nil {
+		t.Fatal("expected not-found error for missing.com")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("Expected exactly 1 HTTP call across 4 GetDomain calls, got: %d", got)
+	}
+}
+
+func TestGetEntryCached(t *testing.T) {
+	var listCalls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/entry_set/"):
+			atomic.AddInt32(&listCalls, 1)
+			_ = json.NewEncoder(w).Encode([]Entry{
+				{ID: 1, Host: "@", Type: "A", Value: "1.1.1.1"},
+				{ID: 2, Host: "www", Type: "A", Value: "2.2.2.2"},
+			})
+		case r.Method == "DELETE":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("Unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, 0)
+
+	for i := 0; i < 3; i++ {
+		entry, err := client.GetEntry(context.Background(), "example.com", 1)
+		if err != nil {
+			t.Fatalf("GetEntry #%d: %s", i, err)
+		}
+		if entry.ID != 1 {
+			t.Errorf("Expected entry 1, got: %d", entry.ID)
+		}
+	}
+	if got := atomic.LoadInt32(&listCalls); got != 1 {
+		t.Errorf("Expected exactly 1 ListEntries call across 3 GetEntry calls, got: %d", got)
+	}
+
+	if err := client.DeleteEntry(context.Background(), "example.com", 2); err != nil {
+		t.Fatalf("DeleteEntry: %s", err)
+	}
+	if _, err := client.GetEntry(context.Background(), "example.com", 1); err != nil {
+		t.Fatalf("GetEntry after DeleteEntry: %s", err)
+	}
+	if got := atomic.LoadInt32(&listCalls); got != 2 {
+		t.Errorf("Expected ListEntries to be re-fetched after DeleteEntry (total=2), got: %d", got)
 	}
 }
 

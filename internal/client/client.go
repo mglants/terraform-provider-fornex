@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -20,6 +21,17 @@ type Client struct {
 	BaseURL    string
 	APIKey     string
 	HTTPClient *retryablehttp.Client
+
+	// The Fornex DNS list endpoints are slow (~2.5s per domain-list page,
+	// ~1s per per-domain entry_set fetch). A single Terraform run can call
+	// GetDomain / GetEntry many times for the same names, so the client
+	// memoizes results for its lifetime. Writes invalidate the matching
+	// entry to keep state consistent within one run.
+	domainsMu       sync.Mutex
+	domainsByName   map[string]Domain
+	domainsLoaded   bool
+	entriesMu       sync.Mutex
+	entriesByDomain map[string][]Entry
 }
 
 // DefaultTimeout is the per-request HTTP timeout used when the caller does not
@@ -120,16 +132,47 @@ type Entry struct {
 	Priority *int   `json:"prio,omitempty"`
 }
 
-// Domain methods
-func (c *Client) ListDomains(ctx context.Context) ([]Domain, error) {
-	body, err := c.doRequest(ctx, "GET", "/dns/domain/", nil)
+// paginatedDomains matches the DRF-style envelope returned by
+// `GET /dns/domain/`: {"count": N, "next": "<absolute url or null>",
+// "previous": ..., "results": [...]}. The provider walks `next` until it is
+// empty.
+type paginatedDomains struct {
+	Next    string   `json:"next"`
+	Results []Domain `json:"results"`
+}
+
+// listDomainsPage fetches a single page. `path` is either a relative API path
+// (e.g. "/dns/domain/?q=foo") or an absolute URL taken verbatim from the
+// previous page's `next` field.
+func (c *Client) listDomainsPage(ctx context.Context, path string) (*paginatedDomains, error) {
+	if strings.HasPrefix(path, c.BaseURL) {
+		path = strings.TrimPrefix(path, c.BaseURL)
+	}
+	body, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	var page paginatedDomains
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, err
+	}
+	return &page, nil
+}
+
+// Domain methods
+func (c *Client) ListDomains(ctx context.Context) ([]Domain, error) {
 	var domains []Domain
-	err = json.Unmarshal(body, &domains)
-	return domains, err
+	next := "/dns/domain/"
+	for next != "" {
+		page, err := c.listDomainsPage(ctx, next)
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, page.Results...)
+		next = page.Next
+	}
+	return domains, nil
 }
 
 func (c *Client) CreateDomain(ctx context.Context, name, ip string) (*Domain, error) {
@@ -143,6 +186,8 @@ func (c *Client) CreateDomain(ctx context.Context, name, ip string) (*Domain, er
 		return nil, err
 	}
 
+	c.invalidateDomain()
+
 	var domain Domain
 	err = json.Unmarshal(body, &domain)
 	return &domain, err
@@ -150,25 +195,47 @@ func (c *Client) CreateDomain(ctx context.Context, name, ip string) (*Domain, er
 
 func (c *Client) DeleteDomain(ctx context.Context, name string) error {
 	_, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/dns/domain/%s/", name), nil)
+	if err == nil {
+		c.invalidateDomain()
+	}
 	return err
 }
 
 func (c *Client) GetDomain(ctx context.Context, name string) (*Domain, error) {
-	body, err := c.doRequest(ctx, "GET", fmt.Sprintf("/dns/domain/?q=%s", url.QueryEscape(name)), nil)
-	if err != nil {
-		return nil, err
+	c.domainsMu.Lock()
+	defer c.domainsMu.Unlock()
+
+	if !c.domainsLoaded {
+		cache := make(map[string]Domain)
+		next := fmt.Sprintf("/dns/domain/?q=%s", url.QueryEscape(name))
+		for next != "" {
+			page, err := c.listDomainsPage(ctx, next)
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range page.Results {
+				cache[d.Name] = d
+			}
+			next = page.Next
+		}
+		c.domainsByName = cache
+		c.domainsLoaded = true
 	}
 
-	var domains []Domain
-	if err := json.Unmarshal(body, &domains); err != nil {
-		return nil, err
-	}
-	for _, d := range domains {
-		if d.Name == name {
-			return &d, nil
-		}
+	if d, ok := c.domainsByName[name]; ok {
+		return &d, nil
 	}
 	return nil, fmt.Errorf("domain %s not found", name)
+}
+
+// invalidateDomain drops the whole domain cache. The user's domain list is
+// small (~25) and only Create/Delete touch it, so just resetting is cheaper
+// than maintaining incremental updates against a possibly-stale view.
+func (c *Client) invalidateDomain() {
+	c.domainsMu.Lock()
+	c.domainsByName = nil
+	c.domainsLoaded = false
+	c.domainsMu.Unlock()
 }
 
 // Entry methods
@@ -194,6 +261,8 @@ func (c *Client) CreateEntry(ctx context.Context, domainName string, entry Entry
 		return nil, err
 	}
 
+	c.invalidateEntries(domainName)
+
 	var newEntry Entry
 	err = json.Unmarshal(body, &newEntry)
 	return &newEntry, err
@@ -210,6 +279,8 @@ func (c *Client) UpdateEntry(ctx context.Context, domainName string, entryID int
 		return nil, err
 	}
 
+	c.invalidateEntries(domainName)
+
 	var updatedEntry Entry
 	err = json.Unmarshal(body, &updatedEntry)
 	return &updatedEntry, err
@@ -217,18 +288,41 @@ func (c *Client) UpdateEntry(ctx context.Context, domainName string, entryID int
 
 func (c *Client) DeleteEntry(ctx context.Context, domainName string, entryID int) error {
 	_, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/dns/domain/%s/entry_set/%d/", domainName, entryID), nil)
+	if err == nil {
+		c.invalidateEntries(domainName)
+	}
 	return err
 }
 
 func (c *Client) GetEntry(ctx context.Context, domainName string, entryID int) (*Entry, error) {
-	entries, err := c.ListEntries(ctx, domainName)
-	if err != nil {
-		return nil, err
+	c.entriesMu.Lock()
+	defer c.entriesMu.Unlock()
+
+	entries, ok := c.entriesByDomain[domainName]
+	if !ok {
+		fetched, err := c.ListEntries(ctx, domainName)
+		if err != nil {
+			return nil, err
+		}
+		if c.entriesByDomain == nil {
+			c.entriesByDomain = make(map[string][]Entry)
+		}
+		c.entriesByDomain[domainName] = fetched
+		entries = fetched
 	}
+
 	for _, e := range entries {
 		if e.ID == entryID {
 			return &e, nil
 		}
 	}
 	return nil, fmt.Errorf("entry %d not found in domain %s", entryID, domainName)
+}
+
+// invalidateEntries drops the entry cache for a single domain. Called after any
+// mutation so the next GetEntry re-fetches.
+func (c *Client) invalidateEntries(domainName string) {
+	c.entriesMu.Lock()
+	delete(c.entriesByDomain, domainName)
+	c.entriesMu.Unlock()
 }

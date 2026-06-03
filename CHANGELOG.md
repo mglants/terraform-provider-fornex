@@ -7,8 +7,9 @@ BREAKING CHANGES:
   The provider now sends a placeholder IP and immediately deletes those
   auto-created records during Create, so the value never reached anyone's
   resolver and the schema attribute had no observable effect. Remove
-  `ip = "..."` from any `fornex_domain` blocks; no state migration is
-  needed (the attribute was create-only and not tracked in state).
+  `ip = "..."` from any `fornex_domain` blocks. The schema version is
+  bumped to 1 and a state upgrader strips the legacy `ip` attribute from
+  prior state automatically — no manual `terraform state` edits required.
 
 ## 0.1.0
 

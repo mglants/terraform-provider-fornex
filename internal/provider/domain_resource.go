@@ -15,6 +15,7 @@ import (
 
 var _ resource.Resource = &DomainResource{}
 var _ resource.ResourceWithImportState = &DomainResource{}
+var _ resource.ResourceWithUpgradeState = &DomainResource{}
 
 type DomainResource struct {
 	client *client.Client
@@ -34,6 +35,8 @@ func (r *DomainResource) Metadata(ctx context.Context, req resource.MetadataRequ
 
 func (r *DomainResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		// Version 1 dropped the `ip` attribute. See UpgradeState below.
+		Version:     1,
 		Description: "Provides a Fornex domain resource. This can be used to create and delete domains on Fornex DNS.",
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
@@ -42,6 +45,37 @@ func (r *DomainResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+		},
+	}
+}
+
+// UpgradeState migrates state written by schema version 0 (which carried an
+// `ip` attribute) to version 1 (which does not). The prior `ip` value was
+// always null in state — Read() wiped it on every refresh — so the upgrade
+// is a pure attribute drop.
+func (r *DomainResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
+	return map[int64]resource.StateUpgrader{
+		0: {
+			PriorSchema: &schema.Schema{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{Required: true},
+					"ip":   schema.StringAttribute{Optional: true},
+				},
+			},
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				type priorModel struct {
+					Name types.String `tfsdk:"name"`
+					IP   types.String `tfsdk:"ip"`
+				}
+				var prior priorModel
+				resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+				resp.Diagnostics.Append(resp.State.Set(ctx, &DomainResourceModel{
+					Name: prior.Name,
+				})...)
 			},
 		},
 	}

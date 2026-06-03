@@ -183,7 +183,7 @@ func TestCreateDomain(t *testing.T) {
 
 		var req DomainRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.Name != "new.com" || req.IP != "1.1.1.1" {
+		if req.Name != "new.com" || req.IP != createDomainStubIP {
 			t.Errorf("Unexpected request body: %+v", req)
 		}
 
@@ -194,7 +194,7 @@ func TestCreateDomain(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", server.URL, 0)
-	domain, err := client.CreateDomain(context.Background(), "new.com", "1.1.1.1")
+	domain, err := client.CreateDomain(context.Background(), "new.com")
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %s", err)

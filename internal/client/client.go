@@ -179,8 +179,16 @@ func (c *Client) ListDomains(ctx context.Context) ([]Domain, error) {
 	return domains, nil
 }
 
-func (c *Client) CreateDomain(ctx context.Context, name, ip string) (*Domain, error) {
-	data, err := json.Marshal(DomainRequest{Name: name, IP: ip})
+// createDomainStubIP is the placeholder IP sent in the POST /dns/domain/ body.
+// Fornex requires `ip` and uses it to seed a default zone template (A records
+// for "", "*", "www", "mail" plus MX "" -> "mail"), but the provider wipes
+// those auto-created records immediately after Create returns — so the IP
+// itself never reaches anyone's resolver. Hardcoding it keeps the resource
+// schema free of an attribute whose value has no observable effect.
+const createDomainStubIP = "127.0.0.1"
+
+func (c *Client) CreateDomain(ctx context.Context, name string) (*Domain, error) {
+	data, err := json.Marshal(DomainRequest{Name: name, IP: createDomainStubIP})
 	if err != nil {
 		return nil, err
 	}

@@ -22,7 +22,6 @@ type DomainResource struct {
 
 type DomainResourceModel struct {
 	Name types.String `tfsdk:"name"`
-	IP   types.String `tfsdk:"ip"`
 }
 
 func NewDomainResource() resource.Resource {
@@ -43,10 +42,6 @@ func (r *DomainResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
-			},
-			"ip": schema.StringAttribute{
-				Description: "Initial IP address for the domain. This attribute is only used during creation and is not tracked in the state afterwards.",
-				Optional:    true,
 			},
 		},
 	}
@@ -78,21 +73,37 @@ func (r *DomainResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	if data.IP.IsNull() {
-		resp.Diagnostics.AddError("Missing IP", "The ip attribute is required when creating a domain.")
-		return
-	}
-
-	domain, err := r.client.CreateDomain(ctx, data.Name.ValueString(), data.IP.ValueString())
+	domain, err := r.client.CreateDomain(ctx, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create domain, got error: %s", err))
 		return
 	}
 
 	data.Name = types.StringValue(domain.Name)
-	data.IP = types.StringNull()
 
+	// Persist state before the cleanup pass below. If a DeleteEntry call fails
+	// we still want the domain tracked in state — otherwise a re-apply would
+	// try to create it again and collide with the now-existing Fornex domain.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	// Fornex POST /dns/domain/ auto-creates a default zone template alongside
+	// the domain itself: A records for "", "*", "www", "mail" all pointing at
+	// the stub IP, plus MX "" -> "mail". Terraform users declare records
+	// explicitly via fornex_record, so these auto-creates would either
+	// duplicate or conflict with planned resources. Treat Terraform as the
+	// source of truth: wipe everything except NS/SOA (which Fornex owns).
+	for _, entry := range domain.EntrySet {
+		if entry.Type == "NS" || entry.Type == "SOA" {
+			continue
+		}
+		if err := r.client.DeleteEntry(ctx, domain.Name, entry.ID); err != nil {
+			resp.Diagnostics.AddError(
+				"Client Error",
+				fmt.Sprintf("Unable to delete auto-created %s record %q (id=%d) on new domain %s: %s",
+					entry.Type, entry.Host, entry.ID, domain.Name, err),
+			)
+		}
+	}
 }
 
 func (r *DomainResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -111,7 +122,6 @@ func (r *DomainResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	data.Name = types.StringValue(domain.Name)
-	data.IP = types.StringNull()
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

@@ -11,7 +11,6 @@ provider "fornex" {
 
 resource "fornex_domain" "example" {
   name = "example.com"
-  ip   = "1.2.3.4"
 }
 
 resource "fornex_record" "www" {
@@ -43,7 +42,6 @@ output "domain_names" {
 ### fornex_domain (Resource)
 
 * `name` (String, Required) The domain name to manage.
-* `ip` (String, Required) Initial IP address for the domain.
 
 ### fornex_record (Resource)
 

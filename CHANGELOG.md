@@ -1,3 +1,11 @@
+## 1.0.2
+
+BUG FIXES:
+  fornex_record: a record deleted outside Terraform (e.g. expired ACME TXT
+  cleanup) made every subsequent plan fail with "Unable to read record, got
+  error: entry N not found in domain". Read now removes such records from
+  state so the next plan re-creates them instead of erroring.
+
 ## 1.0.0
 
 BREAKING CHANGES:

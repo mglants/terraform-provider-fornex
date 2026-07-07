@@ -17,6 +17,11 @@ import (
 
 const DefaultBaseURL = "https://fornex.com/api"
 
+// ErrEntryNotFound is returned by GetEntry when the domain has no entry with
+// the requested ID. Callers use errors.Is to distinguish a record deleted
+// out-of-band from a transport/API failure.
+var ErrEntryNotFound = errors.New("entry not found")
+
 type Client struct {
 	BaseURL    string
 	APIKey     string
@@ -336,7 +341,7 @@ func (c *Client) GetEntry(ctx context.Context, domainName string, entryID int) (
 			return &e, nil
 		}
 	}
-	return nil, fmt.Errorf("entry %d not found in domain %s", entryID, domainName)
+	return nil, fmt.Errorf("entry %d not found in domain %s: %w", entryID, domainName, ErrEntryNotFound)
 }
 
 // invalidateEntries drops the entry cache for a single domain. Called after any

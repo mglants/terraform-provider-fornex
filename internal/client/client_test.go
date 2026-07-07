@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -172,6 +173,30 @@ func TestGetEntryCached(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&listCalls); got != 2 {
 		t.Errorf("Expected ListEntries to be re-fetched after DeleteEntry (total=2), got: %d", got)
+	}
+}
+
+func TestGetEntryNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/entry_set/") {
+			_ = json.NewEncoder(w).Encode([]Entry{
+				{ID: 1, Host: "@", Type: "A", Value: "1.1.1.1"},
+			})
+			return
+		}
+		t.Errorf("Unexpected request: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", server.URL, 0)
+
+	_, err := client.GetEntry(context.Background(), "example.com", 99)
+	if err == nil {
+		t.Fatal("GetEntry for missing ID should error")
+	}
+	if !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("Expected ErrEntryNotFound, got: %s", err)
 	}
 }
 

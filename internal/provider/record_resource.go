@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -195,6 +196,12 @@ func (r *RecordResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	entry, err := r.client.GetEntry(ctx, data.DomainName.ValueString(), int(data.ID.ValueInt64()))
+	if errors.Is(err, client.ErrEntryNotFound) {
+		// The record was deleted outside Terraform (e.g. ACME TXT cleanup);
+		// drop it from state so the next plan recreates it instead of failing.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read record, got error: %s", err))
 		return
